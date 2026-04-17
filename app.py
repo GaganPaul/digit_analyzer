@@ -2,8 +2,13 @@ import streamlit as st
 import groq
 import base64
 import io
-from PIL import Image
+from PIL import Image, ImageOps
 import fitz  # PyMuPDF
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()  # Adds HEIC/HEIF support to Pillow
+except ImportError:
+    pass  # Graceful fallback if not installed
 
 # ─────────────────────────────────────────────
 #  Page config
@@ -235,6 +240,21 @@ def pdf_to_images(pdf_bytes: bytes, dpi: int = 180) -> list:
     return pages
 
 
+def open_image(file) -> Image.Image:
+    """Robustly open any image file from any source (phone, WhatsApp, HEIC, etc.)."""
+    img = Image.open(file)
+    # Fix EXIF rotation — phone/camera images store rotation as metadata only
+    img = ImageOps.exif_transpose(img)
+    # Normalise color mode → RGB
+    if img.mode == "RGBA":
+        bg = Image.new("RGB", img.size, (255, 255, 255))
+        bg.paste(img, mask=img.split()[3])
+        img = bg
+    elif img.mode != "RGB":
+        img = img.convert("RGB")
+    return img
+
+
 SYSTEM_PROMPT = """You are an expert handwriting analyst specialising in handwritten digits and numbers.
 
 Look at the handwriting sample and list every number you can read, row by row, exactly as written.
@@ -252,7 +272,7 @@ def analyze(client: groq.Groq, image: Image.Image) -> str:
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": [
                 {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}},
-                {"type": "text", "text": "List all the numbers you can see in this handwriting sample."},
+                {"type": "text", "text": "List all the numbers you can see in this handwriting sample and ignore the duplicates."},
             ]},
         ],
         temperature=0.2,
@@ -268,25 +288,37 @@ def analyze(client: groq.Groq, image: Image.Image) -> str:
 st.markdown("""
 <div class="hero">
     <h1>🔢 HandScript AI</h1>
-    <p>Upload a handwritten digit sample — get instant transcription &amp; frequency analysis</p>
+    <p>Upload a handwritten digit sample — identify which numbers are in it</p>
 </div>
 """, unsafe_allow_html=True)
 
 client = get_client()
 
 # ── Upload ──────────────────────────────────
+# Session state for resetting uploader
+if "uploader_key" not in st.session_state:
+    st.session_state["uploader_key"] = 0
+
 st.markdown(
     '<p style="font-size:0.78rem;font-weight:600;letter-spacing:0.09em;text-transform:uppercase;'
     'color:#6366F1;margin-bottom:0.5rem;">📁 Upload Sample</p>'
     '<p style="font-size:0.84rem;color:#6B7280;margin-bottom:0.5rem;">'
-    'Accepts JPG, PNG, WEBP, PDF — max 10 MB</p>',
+    'Accepts any image format (JPG, PNG, HEIC, WEBP, BMP, TIFF, …) or PDF — max 10 MB</p>',
     unsafe_allow_html=True,
 )
 uploaded = st.file_uploader(
     "Upload",
-    type=["jpg", "jpeg", "png", "webp", "pdf"],
+    type=None,   # Accept every file type
+    key=f"uploader_{st.session_state['uploader_key']}",
     label_visibility="collapsed",
 )
+
+# ── Clear button ──────────────────────────────
+if uploaded or "result" in st.session_state:
+    if st.button("✕ Clear", use_container_width=False):
+        st.session_state["uploader_key"] += 1
+        st.session_state.pop("result", None)
+        st.rerun()
 
 # ── Process file ────────────────────────────
 raw_image = None
@@ -321,7 +353,11 @@ if uploaded:
             st.info("📃 Single-page PDF detected.")
         raw_image = pdf_pages[selected_page]
     else:
-        raw_image = Image.open(uploaded)
+        try:
+            raw_image = open_image(uploaded)
+        except Exception:
+            st.error("⚠️ Could not read this file. Please upload a valid image (JPG, PNG, HEIC, WEBP, BMP, TIFF) or PDF.")
+            raw_image = None
 
 # ── Preview ─────────────────────────────────
 if raw_image:
