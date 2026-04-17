@@ -1,0 +1,5 @@
+groq>=0.8.0
+Pillow>=10.0.0
+pymupdf>=1.23.0
+streamlit>=1.32.0
+requests>=2.31.0
