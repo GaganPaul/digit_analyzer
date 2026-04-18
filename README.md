@@ -41,7 +41,7 @@ hand_writing_analyzer/
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/hand_writing_analyzer.git
+git clone https://github.com/GaganPaul/hand_writing_analyzer.git
 cd hand_writing_analyzer
 ```
 
@@ -180,3 +180,6 @@ maxUploadSize = 10   # Max upload size in MB
 ## 📄 License
 
 MIT — free to use, modify, and distribute.
+
+---
+You can find the live app at [https://digitanalyzer-ai.streamlit.app/](https://digitanalyzer-ai.streamlit.app/)
